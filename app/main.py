@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from app import config
+from app.routers.jobs import router as jobs_router
 from app.routers.measurements import router as measurements_router
 
 logging.basicConfig(
@@ -21,9 +22,10 @@ app = FastAPI(
     title=config.API_TITLE,
     version=config.API_VERSION,
     description=(
-        "Upload GeoJSON or DXF files and get real-world measurements "
-        "(length, area, perimeter). GeoJSON is measured geodesically on "
-        "WGS84; DXF is measured in CAD units converted via $INSUNITS."
+        "Upload geospatial files (GeoJSON, DXF, KML/KMZ, GPX) and get real-world "
+        "measurements (length, area, perimeter). Geographic formats are measured "
+        "geodesically on WGS84; DXF is measured in CAD units converted via $INSUNITS. "
+        "Batch uploads, CSV export and async jobs included."
     ),
 )
 
@@ -65,3 +67,4 @@ def index():
 
 
 app.include_router(measurements_router)
+app.include_router(jobs_router)
