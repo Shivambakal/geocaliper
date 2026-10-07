@@ -1,0 +1,3 @@
+this is not a geospatial file at all, just some garbage text
+to make sure the api rejects it with a clean 422 instead of crashing.
+{{{{ broken json [[[
