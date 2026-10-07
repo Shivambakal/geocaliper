@@ -1,6 +1,6 @@
 # Geospatial File Measurement API
 
-A small REST API that takes geospatial files (GeoJSON or DXF) and returns real-world measurements — length, area, perimeter. Built with FastAPI.
+A small REST API that takes geospatial files (GeoJSON, DXF, KML/KMZ, GPX) and returns real-world measurements — length, area, perimeter. Built with FastAPI.
 
 I picked FastAPI because the whole spec is basically "parse file, do math, return JSON" and FastAPI gives you validation, docs, and error handling without boilerplate. The interactive docs at `/docs` are handy for the reviewer too.
 
@@ -28,13 +28,13 @@ Run the tests:
 pytest tests/ -q
 ```
 
-26 tests, all passing. They cover the measurement math, the parsers, and every endpoint including the error cases.
+68 tests, all passing. They cover the measurement math, every parser (GeoJSON, DXF, KML/KMZ, GPX), and every endpoint including the error cases.
 
 ## API
 
 ### POST /api/v1/measurements
 
-Upload a file. Works with `.geojson`, `.json`, and `.dxf`.
+Upload a file. Works with `.geojson`, `.json`, `.dxf`, `.kml`, `.kmz`, and `.gpx`.
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/measurements \
@@ -70,6 +70,45 @@ Response:
 
 Bad files get a 422 with a plain-English message, never a 500. Wrong extension, empty file, garbage content, and files over 25 MB are all handled.
 
+Files over 5 MB are automatically processed as async jobs instead — you get a 202 back with a `job_id` and a `poll` URL rather than a hanging request. Pass `?sync=true` if you'd rather wait for the synchronous result anyway.
+
+### POST /api/v1/measurements/batch
+
+Up to 10 files in one request. You get per-file results plus a summary with totals.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/measurements/batch \
+  -F "files=@samples/valid_polygon.geojson" \
+  -F "files=@samples/valid_route.gpx"
+```
+
+A file that fails doesn't kill the batch — it shows up with `"ok": false` and an error message while the rest succeed. The summary aggregates `total_area_m2`, `total_length_m`, and `total_points` across the successful files.
+
+### GET /api/v1/measurements/{measurement_id}/export?format=csv
+
+Downloads the measurement as a CSV (one row per metric) or as JSON — both as file attachments, handy for pulling results into a spreadsheet or a report.
+
+```bash
+curl "http://localhost:8000/api/v1/measurements/<id>/export?format=csv" -o result.csv
+```
+
+### POST /api/v1/jobs
+
+For when you don't want to wait: upload a file, get a `job_id` back immediately (202), then poll until it's done.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/jobs -F "file=@samples/valid_track.kml"
+# {"job_id": "...", "status": "queued", "poll": "/api/v1/jobs/...", ...}
+
+curl http://localhost:8000/api/v1/jobs/<job_id>
+# {"status": "done", "result": {...}, "measurement_id": "..."}
+# or {"status": "failed", "error": "..."} if the file was bad
+```
+
+### GET /api/v1/jobs/{job_id}
+
+Job status: `queued`, `processing`, `done`, or `failed`. The result, when done, is the same shape as the sync endpoint — and the measurement is also retrievable via `GET /api/v1/measurements/{measurement_id}` as usual.
+
 ### POST /api/v1/measurements/geojson
 
 Same thing but you POST raw GeoJSON in the body instead of uploading a file.
@@ -90,7 +129,7 @@ Simple health check, returns `{"status": "ok"}`.
 
 ### GET /demo
 
-A plain page where you can drag-drop a file or paste GeoJSON and see the measurements. Nothing fancy, just useful for trying it out.
+A plain page where you can drag-drop a file or paste GeoJSON and see the measurements. It also does batch uploads, CSV/JSON downloads, and can submit background jobs with live polling. Nothing fancy, just useful for trying it out.
 
 ## Architecture
 
@@ -99,22 +138,23 @@ app/
   main.py              # app setup, request-id middleware, /health, /demo
   config.py            # file size limit and other knobs
   models/schemas.py    # request/response shapes
-  store.py             # in-memory result store
+  store.py             # in-memory result + job store
   routers/
-    measurements.py    # the three endpoints
+    measurements.py    # upload, batch, export, raw geojson, fetch
+    jobs.py            # async job submit + poll
   services/
-    parsers.py         # GeoJSON and DXF parsing -> shapely geometries
+    parsers.py         # GeoJSON / DXF / KML / KMZ / GPX -> shapely geometries
     measure.py         # the actual measurement math
-  static/demo.html     # drag-drop demo page
-samples/               # valid_polygon.geojson, valid_polyline.dxf, malformed_example.txt
+  static/demo.html     # demo page (upload, batch, export, job polling)
+samples/               # geojson, dxf, kml, kmz, gpx samples + a malformed file
 tests/                 # pytest suite
 ```
 
 The flow for an upload:
 
 1. Router checks the extension and reads the file in 1 MB chunks (so a large upload doesn't spike memory), enforcing the 25 MB limit while streaming.
-2. Parser turns the file into shapely geometries. GeoJSON goes through `json` + shapely. DXF goes through ezdxf — I pull LINE, LWPOLYLINE, POLYLINE, CIRCLE, ARC, and POINT entities out of modelspace and convert them to shapely equivalents.
-3. `measure.py` computes the numbers. GeoJSON is measured geodesically on the WGS84 ellipsoid. DXF is measured planar and scaled to meters using the `$INSUNITS` header.
+2. Parser turns the file into shapely geometries. GeoJSON goes through `json` + shapely. DXF goes through ezdxf — I pull LINE, LWPOLYLINE, POLYLINE, CIRCLE, ARC, POINT, SPLINE (flattened), ELLIPSE (flattened), and HATCH boundaries out of modelspace and convert them to shapely equivalents. KML/KMZ and GPX are parsed with the stdlib (`xml.etree` + `zipfile`) — no extra dependencies — since both are WGS84 lon/lat by definition.
+3. `measure.py` computes the numbers. Geographic formats are measured geodesically on the WGS84 ellipsoid. DXF is measured planar and scaled to meters using the `$INSUNITS` header.
 4. The response is saved in the in-memory store under a UUID, and returned.
 
 ## CRS handling
@@ -133,7 +173,7 @@ DXF is the opposite problem: the coordinates are in CAD drawing units with no ge
 
 **Chunked upload reading.** Files are read in 1 MB chunks with the size check during streaming, so a 200 MB upload gets rejected before it's fully in memory.
 
-What I'd do next: async background processing for very large files (return a job id, poll for the result), support for more DXF entities (HATCH, SPLINE), and CRS detection for GeoJSON files that aren't WGS84. Also Redis for the store, as mentioned.
+What I'd do next: CRS detection for GeoJSON files that aren't WGS84, Shapefile/GeoTIFF support (needs GDAL, which is why I skipped it for now), and Redis for the store, as mentioned. API keys + rate limiting if this ever faces the public internet.
 
 ## What I learned
 
@@ -143,4 +183,8 @@ I hadn't worked with DXF before this. The format is old and quirky — the `$INS
 
 - `samples/valid_polygon.geojson` — a ~100m x 100m plot in Kothrud, Pune. Measures about 10,519 m².
 - `samples/valid_polyline.dxf` — an L-shaped polyline (70 m) and a closed 10x20 m rectangle, drawn in meters.
+- `samples/valid_shapes.dxf` — a SPLINE curve (~34 m), an ELLIPSE (~157 m²), and a HATCHed 20x20 m rectangle (400 m²).
+- `samples/valid_track.kml` — a walk in Kothrud: point, path, park plot, and a multigeometry placemark.
+- `samples/valid_track.kmz` — the same KML zipped, for the KMZ path.
+- `samples/valid_route.gpx` — a commute route, an evening ride (two track segments), and two waypoints.
 - `samples/malformed_example.txt` — garbage, for testing the 422 path.
