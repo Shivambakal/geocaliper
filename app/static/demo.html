@@ -9,10 +9,13 @@
   body { font-family: system-ui, -apple-system, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; color: #222; }
   h1 { font-size: 1.4rem; }
   p.sub { color: #666; margin-top: -0.5rem; }
+  .badges { margin: 0.75rem 0 1.25rem; }
+  .badge { display: inline-block; font-size: 0.75rem; font-family: monospace; background: #eef; border: 1px solid #ccd; border-radius: 10px; padding: 0.15rem 0.6rem; margin-right: 0.35rem; color: #445; }
   #drop { border: 2px dashed #aaa; border-radius: 8px; padding: 2.5rem 1rem; text-align: center; color: #555; cursor: pointer; }
   #drop.over { border-color: #333; background: #f7f7f7; }
   textarea { width: 100%; height: 120px; margin-top: 1rem; font-family: monospace; font-size: 0.85rem; }
   button { margin-top: 0.75rem; padding: 0.5rem 1.25rem; font-size: 1rem; cursor: pointer; }
+  button.small { font-size: 0.8rem; padding: 0.3rem 0.7rem; margin: 0.25rem 0.25rem 0 0; }
   #out { margin-top: 1.5rem; }
   table { border-collapse: collapse; width: 100%; margin-top: 0.5rem; }
   th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; font-size: 0.9rem; }
@@ -20,18 +23,33 @@
   .err { color: #a00; }
   .muted { color: #777; font-size: 0.85rem; }
   pre { background: #f4f4f4; padding: 0.75rem; border-radius: 6px; overflow-x: auto; font-size: 0.8rem; }
+  .row { display: flex; gap: 0.75rem; align-items: center; margin-top: 0.75rem; flex-wrap: wrap; }
+  label.chk { font-size: 0.9rem; color: #444; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; border-top: 1px solid #eee; padding-top: 1.25rem; }
 </style>
 </head>
 <body>
   <h1>Geospatial Measurement API</h1>
-  <p class="sub">Drop a <code>.geojson</code> or <code>.dxf</code> file, or paste raw GeoJSON below.</p>
+  <p class="sub">Drop a file, or paste raw GeoJSON below.</p>
+  <div class="badges">
+    <span class="badge">.geojson</span><span class="badge">.json</span><span class="badge">.dxf</span><span class="badge">.kml</span><span class="badge">.kmz</span><span class="badge">.gpx</span>
+  </div>
 
   <div id="drop">Drop file here, or click to choose</div>
-  <input type="file" id="file" accept=".geojson,.json,.dxf" hidden>
+  <input type="file" id="file" accept=".geojson,.json,.dxf,.kml,.kmz,.gpx" hidden>
+  <div class="row">
+    <label class="chk"><input type="checkbox" id="bg"> process in background (async job)</label>
+  </div>
 
   <textarea id="raw" placeholder='{"type": "FeatureCollection", "features": [...]}'></textarea>
   <br>
   <button id="sendRaw">Measure pasted GeoJSON</button>
+
+  <h2>Batch</h2>
+  <p class="sub">Up to 10 files at once — per-file results plus a summary.</p>
+  <input type="file" id="batchFiles" accept=".geojson,.json,.dxf,.kml,.kmz,.gpx" multiple>
+  <br>
+  <button id="sendBatch">Measure batch</button>
 
   <div id="out"></div>
 
@@ -40,34 +58,85 @@ const out = document.getElementById('out');
 const drop = document.getElementById('drop');
 const fileInput = document.getElementById('file');
 
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function exportButtons(id) {
+  return `<div>
+    <button class="small" onclick="window.open('/api/v1/measurements/${id}/export?format=csv')">download CSV</button>
+    <button class="small" onclick="window.open('/api/v1/measurements/${id}/export?format=json')">download JSON</button>
+  </div>`;
+}
+
 function showResult(r) {
   const m = r.result.measurements;
-  let rows = Object.entries(m).map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  let rows = Object.entries(m).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('');
   out.innerHTML = `
     <h3>Result</h3>
     <table>
       <tr><th>measurement</th><th>value</th></tr>
       ${rows}
-      <tr><td>geometry type</td><td>${r.result.geometry_type}</td></tr>
-      <tr><td>CRS</td><td>${r.result.detected_crs}</td></tr>
-      <tr><td>conversion</td><td>${r.result.conversion_details || '—'}</td></tr>
-      <tr><td>id</td><td class="muted">${r.measurement_id}</td></tr>
+      <tr><td>geometry type</td><td>${esc(r.result.geometry_type)}</td></tr>
+      <tr><td>format</td><td>${esc(r.file_metadata.format)}</td></tr>
+      <tr><td>CRS</td><td>${esc(r.result.detected_crs)}</td></tr>
+      <tr><td>conversion</td><td>${esc(r.result.conversion_details || '—')}</td></tr>
+      <tr><td>id</td><td class="muted">${esc(r.measurement_id)}</td></tr>
     </table>
-    ${r.errors.length ? `<p class="err">warnings: ${r.errors.join('; ')}</p>` : ''}
-    <details><summary class="muted">raw JSON</summary><pre>${JSON.stringify(r, null, 2)}</pre></details>`;
+    ${exportButtons(r.measurement_id)}
+    ${r.errors.length ? `<p class="err">warnings: ${r.errors.map(esc).join('; ')}</p>` : ''}
+    <details><summary class="muted">raw JSON</summary><pre>${esc(JSON.stringify(r, null, 2))}</pre></details>`;
 }
 
 function showError(msg) {
-  out.innerHTML = `<p class="err">${msg}</p>`;
+  out.innerHTML = `<p class="err">${esc(msg)}</p>`;
+}
+
+async function pollJob(jobId) {
+  out.innerHTML = '<p class="muted">job queued — polling…</p>';
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    const res = await fetch(`/api/v1/jobs/${jobId}`);
+    const job = await res.json();
+    if (job.status === 'done') return showResult(job.result);
+    if (job.status === 'failed') return showError('job failed: ' + job.error);
+    out.innerHTML = `<p class="muted">job ${esc(job.status)}…</p>`;
+  }
+  showError('job is taking too long, check back with the job id: ' + jobId);
 }
 
 async function measureFile(f) {
+  const useBg = document.getElementById('bg').checked;
   const fd = new FormData();
   fd.append('file', f);
   out.innerHTML = '<p class="muted">measuring…</p>';
-  const res = await fetch('/api/v1/measurements', { method: 'POST', body: fd });
+  const url = useBg ? '/api/v1/jobs' : '/api/v1/measurements';
+  const res = await fetch(url, { method: 'POST', body: fd });
   const body = await res.json();
-  res.ok ? showResult(body) : showError(body.detail || 'request failed');
+  if (!res.ok && res.status !== 202) return showError(body.detail || 'request failed');
+  if (res.status === 202) return pollJob(body.job_id);
+  showResult(body);
+}
+
+async function measureBatch(files) {
+  if (!files.length) return showError('choose at least one file');
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f);
+  out.innerHTML = '<p class="muted">measuring batch…</p>';
+  const res = await fetch('/api/v1/measurements/batch', { method: 'POST', body: fd });
+  const body = await res.json();
+  if (!res.ok) return showError(body.detail || 'request failed');
+  const s = body.summary;
+  const rows = body.files.map(f => {
+    const m = f.ok ? f.measurement.result.measurements : {};
+    const desc = f.ok
+      ? Object.entries(m).map(([k, v]) => `${k}=${v}`).join(', ')
+      : `<span class="err">${esc(f.error)}</span>`;
+    return `<tr><td>${esc(f.filename)}</td><td>${f.ok ? 'ok' : 'failed'}</td><td>${desc}</td></tr>`;
+  }).join('');
+  out.innerHTML = `
+    <h3>Batch result</h3>
+    <p class="muted">${s.succeeded}/${s.file_count} succeeded ·
+      total area ${s.total_area_m2} m² · total length ${s.total_length_m} m</p>
+    <table><tr><th>file</th><th>status</th><th>measurements</th></tr>${rows}</table>`;
 }
 
 drop.onclick = () => fileInput.click();
@@ -85,6 +154,9 @@ document.getElementById('sendRaw').onclick = async () => {
   const body = await res.json();
   res.ok ? showResult(body) : showError(body.detail || 'request failed');
 };
+
+document.getElementById('sendBatch').onclick = () =>
+  measureBatch(document.getElementById('batchFiles').files);
 </script>
 </body>
 </html>
