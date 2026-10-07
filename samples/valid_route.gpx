@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="geocaliper-samples" xmlns="http://www.topografix.com/GPX/1/1">
+  <wpt lat="18.5074" lon="73.8135"><name>Home</name></wpt>
+  <wpt lat="18.5204" lon="73.8567"><name>Office</name></wpt>
+  <rte>
+    <name>Commute</name>
+    <rtept lat="18.5074" lon="73.8135"/>
+    <rtept lat="18.5120" lon="73.8300"/>
+    <rtept lat="18.5204" lon="73.8567"/>
+  </rte>
+  <trk>
+    <name>Evening ride</name>
+    <trkseg>
+      <trkpt lat="18.5074" lon="73.8135"/>
+      <trkpt lat="18.5074" lon="73.8145"/>
+      <trkpt lat="18.5084" lon="73.8145"/>
+    </trkseg>
+    <trkseg>
+      <trkpt lat="18.5084" lon="73.8145"/>
+      <trkpt lat="18.5094" lon="73.8155"/>
+    </trkseg>
+  </trk>
+</gpx>

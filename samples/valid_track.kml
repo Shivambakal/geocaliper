@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Morning walk, Kothrud</name>
+    <Placemark>
+      <name>Start point</name>
+      <Point>
+        <coordinates>73.8135,18.5074,0</coordinates>
+      </Point>
+    </Placemark>
+    <Placemark>
+      <name>Walk path</name>
+      <LineString>
+        <coordinates>73.8135,18.5074,0 73.8145,18.5074,0 73.8145,18.5084,0 73.8135,18.5084,0</coordinates>
+      </LineString>
+    </Placemark>
+    <Placemark>
+      <name>Park plot</name>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>73.8150,18.5090,0 73.8160,18.5090,0 73.8160,18.5100,0 73.8150,18.5100,0 73.8150,18.5090,0</coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+    <Placemark>
+      <name>Extras</name>
+      <MultiGeometry>
+        <Point>
+          <coordinates>73.8170,18.5110,0</coordinates>
+        </Point>
+        <LineString>
+          <coordinates>73.8170,18.5110,0 73.8180,18.5120,0</coordinates>
+        </LineString>
+      </MultiGeometry>
+    </Placemark>
+  </Document>
+</kml>
