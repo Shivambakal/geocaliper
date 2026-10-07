@@ -6,6 +6,7 @@ meters directly on the ellipsoid.
 """
 
 from geographiclib.geodesic import Geodesic
+from geographiclib.polygonarea import PolygonArea
 
 GEOD = Geodesic.WGS84
 
@@ -29,7 +30,7 @@ def geodesic_length_m(coords) -> float:
 
 def geodesic_area_perimeter(coords) -> tuple[float, float]:
     """(area_m2, perimeter_m) for a closed ring, coords = [(lon, lat), ...]."""
-    poly = Geodesic.WGS84.PolygonArea()
+    poly = PolygonArea(GEOD, False)
     for lon, lat in coords:
         poly.AddPoint(lat, lon)
     _, perimeter, area = poly.Compute()

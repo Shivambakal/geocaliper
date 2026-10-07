@@ -112,7 +112,8 @@ def _dxf_entity_to_coords(entity):
 def parse_dxf_bytes(data: bytes):
     """Parse DXF bytes -> (geometries, unit_code, warnings)."""
     try:
-        doc = ezdxf.read(io.BytesIO(data))
+        # ezdxf wants a text stream, not bytes
+        doc = ezdxf.read(io.StringIO(data.decode("utf-8", errors="replace")))
     except (ezdxf.DXFError, OSError) as exc:
         raise ParseError(f"not a readable DXF file: {exc}")
 
